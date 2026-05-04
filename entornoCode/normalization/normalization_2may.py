@@ -25,7 +25,7 @@ CANALES = ["C00-DAPI", "C01-IBA-1", "C02-GFAP"]
 COLORES = ["blue",     "green",     "red"]
 
 # ── Alineamiento ECC ──────────────────────────────────────────
-ECC_ITERATIONS    = 300      # máx iteraciones por par de cortes
+ECC_ITERATIONS    = 400      # máx iteraciones por par de cortes
 ECC_EPSILON       = 1e-6     # tolerancia de convergencia
 ECC_WARP_MODE     = cv2.MOTION_TRANSLATION  # solo traslación (más estable)
 ECC_GAUSS_SIGMA   = 5        # suavizado previo al ECC para robustez

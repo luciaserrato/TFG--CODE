@@ -10,7 +10,7 @@ escala_reduccion     = 0.2
 pixel_size_rescaled  = pixel_size / escala_reduccion 
 area_pixel_micras2   = pixel_size_rescaled ** 2
 
-ruta_raiz = r"C:\Users\frans\Desktop\TFG\ct2\Reconstruccion_v2"
+ruta_raiz = r"C:\Users\Juan Pedro\Desktop\TFG\ct2\Reconstruccion_v2"
 #canal_referencia = "C00-DAPI" 
 canal_referencia = "C01-IBA-1" 
 #canal_referencia = "C02-GFAP" 

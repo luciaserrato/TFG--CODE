@@ -34,7 +34,7 @@ scale_xyz       = (z_um_por_plano, xy_um_por_pixel, xy_um_por_pixel)
 
 gfap_umbral_percentil = int(datos.get("gfap_umbral_percentil", 85))
 gfap_apertura_px      = int(datos.get("gfap_apertura_px", 3))
-gfap_cierre_px        = int(datos.get("gfap_cierre_px", 15))  # cierre agresivo = tumor sólido
+gfap_cierre_px        = int(datos.get("gfap_cierre_px", 15))
 gfap_erosion_px       = int(datos.get("gfap_erosion_px", 2))
 
 print(f"Escala Z: {z_um_por_plano} µm/plano  |  XY: {xy_um_por_pixel:.4f} µm/píxel")
@@ -45,7 +45,6 @@ print(f"Canales: {canales}")
 # UTILIDADES
 # ============================================================
 def asegurar_zyx(vol):
-    """Pone el eje más largo en posición 0 (Z)."""
     idx_max = int(np.argmax(vol.shape))
     if idx_max != 0:
         orden = [idx_max] + [i for i in range(3) if i != idx_max]
@@ -55,11 +54,6 @@ def asegurar_zyx(vol):
 
 
 def a_float32(vol):
-    """
-    Convierte cualquier dtype a float32 normalizado en [0, 1].
-    Vispy acepta float32 de forma universal, independientemente
-    de la versión de napari instalada.
-    """
     vol = vol.astype(np.float32)
     mn, mx = vol.min(), vol.max()
     if mx > mn:
@@ -70,7 +64,6 @@ def a_float32(vol):
 
 
 def cargar_vol(clave):
-    """Carga un volumen del npz, lo normaliza a float32 [0,1] y asegura (Z,Y,X)."""
     if clave not in datos:
         return None
     vol = np.squeeze(datos[clave])
@@ -79,18 +72,10 @@ def cargar_vol(clave):
         return None
     vol = asegurar_zyx(vol)
     vol = a_float32(vol)
-    # Vispy rechaza volúmenes donde dos ejes tienen el mismo tamaño.
-    # Añadimos 1 píxel de padding en Y si Y == X para evitar el error.
-    z, y, x = vol.shape
-    if y == x:
-        vol = np.pad(vol, ((0,0),(0,1),(0,0)), mode="edge")
-    elif z == y or z == x:
-        vol = np.pad(vol, ((0,1),(0,0),(0,0)), mode="edge")
     return vol
 
 
 def calcular_contraste(vol, p_low=P_LOW, p_high=P_HIGH):
-    """Percentiles sobre float32 [0,1]."""
     pos = vol[vol > 0]
     if pos.size == 0:
         return [0.0, 1.0]
@@ -100,36 +85,22 @@ def calcular_contraste(vol, p_low=P_LOW, p_high=P_HIGH):
     return [max(0.0, lo), min(1.0, hi)]
 
 
-def crear_capa_contacto(vol_iba1, vol_gfap, sigma=2.0, umbral_percentil=80,
+def crear_capa_contacto(vol_iba1, vol_gfap, sigma=2.0, umbral_percentil=70,
                          dilatacion_z_um=40):
-    """
-    Capa amarilla de co-localización IBA-1 x GFAP.
-
-    Como GFAP es una sola capa de tejido y IBA-1 ocupa todo el volumen,
-    se dilata la máscara GFAP en Z antes de multiplicar, para capturar
-    la microglía que rodea e infiltra el tumor en profundidad.
-
-    dilatacion_z_um: µm de influencia alrededor del tumor (por defecto 40 µm
-                     = 1 corte real de criostato a cada lado)
-    """
-    # Binarizar GFAP y dilatar en Z para dar grosor de influencia
     mascara_gfap = (vol_gfap > 0).astype(np.float32)
     if dilatacion_z_um > 0:
-        # sigma_z en planos: dilatacion_um / z_um_por_plano (1 µm/plano)
-        sigma_z = dilatacion_z_um / 3.0  # 3-sigma cubre ~99% del rango
+        sigma_z = dilatacion_z_um / 3.0
         mascara_dilatada = ndimage.gaussian_filter1d(
             mascara_gfap, sigma=sigma_z, axis=0)
         mascara_dilatada = np.clip(mascara_dilatada, 0, 1)
     else:
         mascara_dilatada = mascara_gfap
 
-    # Señal GFAP ponderada por la máscara dilatada
     gfap_ponderado = vol_gfap.astype(np.float32) + mascara_dilatada * 0.3
-
     iba_s  = ndimage.gaussian_filter(vol_iba1.astype(np.float32), sigma=sigma)
     gfap_s = ndimage.gaussian_filter(gfap_ponderado, sigma=sigma)
-
     contacto = iba_s * gfap_s
+
     pos = contacto[contacto > 0]
     if pos.size > 0:
         umbral = float(np.percentile(pos, umbral_percentil))
@@ -142,18 +113,13 @@ def crear_capa_contacto(vol_iba1, vol_gfap, sigma=2.0, umbral_percentil=80,
 
 def segmentar_gfap_live(vol_gfap_f32, umbral_percentil, erosion_px,
                          apertura_px, cierre_px):
-    """
-    Recalcula máscara GFAP sobre el volumen float32 [0,1].
-    Devuelve float32 [0,1] listo para napari.
-    """
     pos = vol_gfap_f32[vol_gfap_f32 > 0]
     if pos.size == 0:
         return np.zeros_like(vol_gfap_f32)
 
     umbral  = float(np.percentile(pos, umbral_percentil))
     mascara = (vol_gfap_f32 >= umbral).astype(np.uint8)
-
-    struct = ndimage.generate_binary_structure(3, 1)
+    struct  = ndimage.generate_binary_structure(3, 1)
 
     if erosion_px > 0:
         mascara = ndimage.binary_erosion(
@@ -184,54 +150,47 @@ vol_gfap  = cargar_vol("vol_C02_GFAP")
 vol_tumor = cargar_vol("vol_C02_GFAP_mascara")
 
 if vol_tumor is None and vol_gfap is not None:
-    # Sin máscara pre-calculada: mostrar GFAP completo.
-    # Usar el widget 'Mascara GFAP' en napari para refinar en tiempo real.
     print("  Sin mascara pre-calculada — mostrando GFAP completo")
     vol_tumor = vol_gfap.copy()
 
 # ============================================================
 # 3. VISUALIZACIÓN EN NAPARI
+# SIN rendering= ni visible= para máxima compatibilidad con esta versión de napari
+# El contraste se ajusta con p_low alto para suprimir fondo sin MIP
 # ============================================================
 viewer = napari.Viewer(ndisplay=3)
 capas  = {}
 
 if vol_dapi is not None:
-    cl = calcular_contraste(vol_dapi, p_low=80, p_high=99)
+    cl = calcular_contraste(vol_dapi)
     print(f"  DAPI       shape={vol_dapi.shape}  cl={[round(v,4) for v in cl]}")
     capas["DAPI"] = viewer.add_image(
         vol_dapi, name="DAPI", scale=scale_xyz,
         blending="additive", colormap="blue",
-        contrast_limits=cl, opacity=0.5, gamma=0.6,
-        rendering="mip",
-        visible=False,   # oculto por defecto
+        contrast_limits=cl, opacity=0.35, gamma=1.0,
     )
 
 if vol_iba1 is not None:
-    cl = calcular_contraste(vol_iba1, p_low=80, p_high=99)
+    cl = calcular_contraste(vol_iba1, p_low=60, p_high=99)
     print(f"  IBA-1      shape={vol_iba1.shape}  cl={[round(v,4) for v in cl]}")
     capas["IBA-1"] = viewer.add_image(
         vol_iba1, name="IBA-1", scale=scale_xyz,
         blending="additive", colormap="green",
-        contrast_limits=cl, opacity=0.9, gamma=0.6,
-        rendering="mip",
+        contrast_limits=cl, opacity=0.7, gamma=1.0,
     )
 
-# Capa GFAP-fondo eliminada — solo se muestra el tumor segmentado
-
 if vol_tumor is not None:
-    cl = calcular_contraste(vol_tumor, p_low=80, p_high=99)
+    cl = calcular_contraste(vol_tumor, p_low=60, p_high=99)
     print(f"  GFAP-tumor shape={vol_tumor.shape}  cl={[round(v,4) for v in cl]}")
     capas["GFAP-tumor"] = viewer.add_image(
         vol_tumor, name="GFAP-tumor", scale=scale_xyz,
         blending="additive", colormap="red",
-        contrast_limits=cl, opacity=0.9, gamma=0.6,
-        rendering="mip",
-        visible=False,   # oculto por defecto
+        contrast_limits=cl, opacity=0.9, gamma=0.8,
     )
 
 if vol_iba1 is not None and vol_tumor is not None:
     print("  Calculando capa de contacto IBA-1 x GFAP...")
-    vol_contacto = crear_capa_contacto(vol_iba1, vol_tumor, umbral_percentil=70)
+    vol_contacto = crear_capa_contacto(vol_iba1, vol_tumor)
     cl = calcular_contraste(vol_contacto)
     print(f"  Contacto   shape={vol_contacto.shape}  cl={[round(v,4) for v in cl]}")
     capas["Contacto"] = viewer.add_image(
@@ -240,10 +199,7 @@ if vol_iba1 is not None and vol_tumor is not None:
         contrast_limits=cl, opacity=1.0, gamma=0.7,
     )
 
-# Ángulo de cámara optimizado para ver el tumor de frente
-# El volumen es alargado en Z (601 planos) vs XY (388x387 px)
-# Rotamos para ver la masa tumoral desde un ángulo que muestre su volumen real
-viewer.camera.angles = (0, 30, 135)  # vista lateral-frontal del tumor
+viewer.camera.angles = (0, 30, 135)
 viewer.camera.zoom   = 1.2
 
 # ============================================================
@@ -297,8 +253,8 @@ nombres_capas = list(capas.keys())
     call_button="Aplicar",
     capa    ={"choices": nombres_capas,     "label": "Capa"},
     opacidad={"widget_type": "FloatSlider", "min": 0.0, "max": 1.0, "value": 0.7, "label": "Opacidad"},
-    p_low   ={"widget_type": "SpinBox",     "min": 0,   "max": 49,  "value": P_LOW,  "label": "Percentil bajo"},
-    p_high  ={"widget_type": "SpinBox",     "min": 50,  "max": 100, "value": P_HIGH, "label": "Percentil alto"},
+    p_low   ={"widget_type": "SpinBox",     "min": 0,   "max": 89,  "value": P_LOW,  "label": "Percentil bajo"},
+    p_high  ={"widget_type": "SpinBox",     "min": 90,  "max": 100, "value": P_HIGH, "label": "Percentil alto"},
     visible ={"label": "Visible"},
 )
 def widget_general(capa=nombres_capas[0], opacidad=0.7,
@@ -324,7 +280,6 @@ print(f"  Escala XY: {xy_um_por_pixel:.4f} µm/píxel")
 print(f"  Capas: {list(capas.keys())}")
 print("  Panel 'Mascara GFAP' -> refina el tumor en tiempo real")
 print("  Capa 'Contacto IBA1xGFAP' -> infiltracion microglía (amarillo)")
-print("  Capa 'GFAP-fondo' -> activala para ver contexto astrocítico")
 print("=" * 60)
 
 napari.run()
