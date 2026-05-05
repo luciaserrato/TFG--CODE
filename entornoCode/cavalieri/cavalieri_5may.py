@@ -2,41 +2,32 @@ import os
 import csv
 import numpy as np
 from skimage import io, transform, filters, morphology
+from scipy import ndimage
 
 # ============================================================
 # CONFIGURACIÓN
 # ============================================================
-PIXEL_SIZE        = 1.1364   # µm por píxel original hallado con Fiji
-ESCALA_REDUCCION  = 0.2      # factor de downscale, disminuye procesador y memoria, pero reduce resolución
+PIXEL_SIZE        = 1.1364
+ESCALA_REDUCCION  = 0.2
 PIXEL_SIZE_SCALED = PIXEL_SIZE / ESCALA_REDUCCION
 AREA_PIXEL_UM2    = PIXEL_SIZE_SCALED ** 2
 
 RUTA_RAIZ  = r"C:\Users\Juan Pedro\Desktop\TFG\ct2\Reconstruccion_v2"
 RUTA_SALIDA = r"C:\Users\Juan Pedro\Desktop\TFG\ct2\csv\cavalieri_resultados.csv"
 
-# Canales a analizar y su método de umbralización óptimo
-# - DAPI:  Otsu (distribución bimodal clara)
-# - IBA-1: Li   (marcaje tenue, Li es más sensible)
-# - GFAP:  Li   (marcaje difuso, igual que IBA-1)
+# 🔥 CAMBIO: DAPI usa "tejido"
 CANALES = {
-    "C00-DAPI":  "otsu",
+    "C00-DAPI":  "tejido",
     "C01-IBA-1": "li",
     "C02-GFAP":  "li",
 }
 
-# Muestreos de Cavalieri
-# T = distancia entre cortes en µm (criostato corta cada 20µm, se coge 1 de cada N)
 MUESTREOS = {
     "Cavalieri_40um_impares": {
         "indices": [45, 47, 49, 51, 53, 55, 57, 60, 61, 63, 65, 67, 69, 71, 73],
         "T": 40,
         "descripcion": "Cada 2 cortes (impares)"
-    },
-    "Cavalieri_40um_pares": {
-        "indices": [46, 48, 50, 52, 54, 56, 58, 60, 62, 64, 67, 68, 70, 71, 73],
-        "T": 40,
-        "descripcion": "Cada 2 cortes (pares)"
-    },
+    }, #solo impares porque hay mas muestras 
     "Cavalieri_60um": {
         "indices": [45, 48, 51, 54, 57, 60, 63, 65, 69, 73],
         "T": 60,
@@ -47,49 +38,64 @@ MUESTREOS = {
 # ============================================================
 # FUNCIONES
 # ============================================================
-def umbralizar(img, metodo):
-    """
-    Devuelve máscara binaria según el método indicado.
-    """
 
+def umbralizar(img, metodo):
+
+    # ========================================================
+    # 🔥UEVO: MODO TEJIDO PARA DAPI
+    # ========================================================
+    if metodo == "tejido":
+        img = img.astype(np.float32)
+        
+        # 1. Estimación y resta del ruido de fondo (Background Subtraction)
+        # Tomamos el promedio del 10% de los píxeles más oscuros como nivel de ruido
+        fondo_estimado = np.mean(img[img < np.percentile(img, 10)]) 
+        img = np.maximum(0, img - fondo_estimado) 
+        
+        # 2. Suavizado Gaussiano para integrar núcleos en una masa continua
+        img_s = ndimage.gaussian_filter(img, sigma=3)
+        
+        # 3. Cálculo de umbral dinámico sobre el 50% superior de la señal
+        positivos = img_s[img_s > 0]
+        if positivos.size == 0:
+            return np.zeros_like(img, dtype=bool), 0.0
+            
+        umbral = np.percentile(positivos, 50) 
+        mascara = img_s > umbral
+
+        # 4. Operaciones morfológicas para consolidar el volumen del tumor
+        # Rellena huecos internos y elimina pequeñas motas de ruido
+        mascara = morphology.binary_closing(mascara, morphology.disk(10))
+        mascara = morphology.remove_small_objects(mascara, min_size=500)
+
+        return mascara, float(umbral)
+
+    # ========================================================
+    # MÉTODOS NORMALES
+    # ========================================================
     if metodo == "otsu":
         umbral = filters.threshold_otsu(img)
 
     elif metodo == "li":
         umbral = filters.threshold_li(img)
 
-    elif metodo == "triangle":
-        umbral = filters.threshold_triangle(img)
-
     elif metodo == "percentil":
-        # SOLO LOS PIXELES MÁS BRILLANTES
         positivos = img[img > 0]
-
         if positivos.size == 0:
             return np.zeros_like(img, dtype=bool), 0.0
-
-        umbral = np.percentile(positivos, 95)  # 👈 AJUSTA: 90–99
+        umbral = np.percentile(positivos, 95)
 
     else:
         raise ValueError(f"Método desconocido: {metodo}")
 
     mascara = img > umbral
-
-    # limpiar ruido pequeño
     mascara = morphology.remove_small_objects(mascara, min_size=50)
 
     return mascara, float(umbral)
 
 
 def calcular_cavalieri(canal, metodo_umbral, indices, T):
-    """
-    Estima el volumen de un canal por el método de Cavalieri.
 
-    V = T × Σ A_i
-    donde T es la distancia entre cortes y A_i es el área del corte i.
-
-    Retorna (volumen_um3, lista_areas_um2, n_encontrados)
-    """
     ruta_canal = os.path.join(RUTA_RAIZ, canal)
     if not os.path.exists(ruta_canal):
         print(f"  [ERROR] No existe: {ruta_canal}")
@@ -97,13 +103,13 @@ def calcular_cavalieri(canal, metodo_umbral, indices, T):
 
     archivos = os.listdir(ruta_canal)
     areas    = []
-    umbrales = []
     n_ok     = 0
 
     for n in indices:
-        # Buscar archivo que empiece por c{n} (insensible a mayúsculas)
+
         match = [f for f in archivos
                  if f.lower().startswith(f"c{n}_") or f.lower().startswith(f"c{n}.")]
+
         if not match:
             print(f"    [AVISO] Corte {n} no encontrado en {canal}")
             areas.append(0.0)
@@ -112,19 +118,19 @@ def calcular_cavalieri(canal, metodo_umbral, indices, T):
         try:
             ruta_img = os.path.join(ruta_canal, match[0])
             img = io.imread(ruta_img)
+
             if img.ndim == 3:
                 img = img[:, :, 0]
 
-            # Reducir escala
             img_r = transform.rescale(
                 img, ESCALA_REDUCCION,
                 preserve_range=True, anti_aliasing=True
             ).astype(np.uint16)
 
-            mascara, umbral = umbralizar(img_r, metodo_umbral)
+            mascara, _ = umbralizar(img_r, metodo_umbral)
+
             area_um2 = float(np.sum(mascara)) * AREA_PIXEL_UM2
             areas.append(area_um2)
-            umbrales.append(umbral)
             n_ok += 1
 
         except Exception as e:
@@ -144,71 +150,45 @@ def error_relativo(v_ref, v_comp):
 # ============================================================
 # EJECUCIÓN
 # ============================================================
+
 print("=" * 65)
 print("ESTIMACIÓN DE VOLUMEN — MÉTODO DE CAVALIERI")
-print(f"Pixel size original: {PIXEL_SIZE} µm")
-print(f"Área por píxel:      {AREA_PIXEL_UM2:.4f} µm²")
 print("=" * 65)
 
-# Estructura: resultados[canal][muestreo] = (vol, areas, n_ok)
 resultados = {canal: {} for canal in CANALES}
 
 for canal, metodo in CANALES.items():
+
     print(f"\n{'─'*65}")
-    print(f"Canal: {canal}  (umbral: {metodo})")
+    print(f"Canal: {canal}  (modo: {metodo})")
     print(f"{'─'*65}")
 
     for nombre, cfg in MUESTREOS.items():
+
         vol, areas, n_ok = calcular_cavalieri(
             canal, metodo, cfg["indices"], cfg["T"])
+
         resultados[canal][nombre] = (vol, areas, n_ok)
 
         print(f"\n  [{cfg['descripcion']}]")
         print(f"  Cortes analizados: {n_ok}/{len(cfg['indices'])}")
-        print(f"  Áreas por corte (µm²): "
-              f"{[f'{a:.0f}' for a in areas if a > 0]}")
         print(f"  Σ áreas = {sum(areas):,.0f} µm²")
-        print(f"  Volumen = {vol/1e9:.6f} mm³  ({vol:,.0f} µm³)")
+        print(f"  Volumen = {vol/1e9:.6f} mm³")
 
-# ── Comparativa entre muestreos por canal ──────────────────────
-print(f"\n{'='*65}")
-print("COMPARATIVA ENTRE MUESTREOS")
-print(f"{'Canal':<15} {'Muestreo':<30} {'Volumen (mm³)':>14} {'Error rel.':>11}")
-print(f"{'─'*65}")
+# ============================================================
+# CSV
+# ============================================================
 
-filas_csv = [["Canal", "Muestreo", "Descripcion", "T_um",
-              "N_cortes", "SumaAreas_um2", "Volumen_mm3", "Error_rel_%"]]
+filas_csv = [["Canal", "Muestreo", "Volumen_mm3"]]
 
 for canal in CANALES:
-    vols = {n: resultados[canal][n][0] for n in MUESTREOS}
-    # Referencia: promedio de los dos muestreos a 40µm
-    v_ref_impares = vols.get("Cavalieri_40um_impares", 0)
-    v_ref_pares   = vols.get("Cavalieri_40um_pares",   0)
-    v_ref = (v_ref_impares + v_ref_pares) / 2 if (v_ref_impares + v_ref_pares) > 0 else 1
+    for nombre in MUESTREOS:
+        vol = resultados[canal][nombre][0]
+        filas_csv.append([canal, nombre, f"{vol/1e9:.6f}"])
 
-    for nombre, cfg in MUESTREOS.items():
-        vol, areas, n_ok = resultados[canal][nombre]
-        err = error_relativo(v_ref, vol) if nombre != "Cavalieri_40um_impares" else 0.0
-        err_str = f"{err:.2f}%" if not (err != err) else "—"  # nan check
+os.makedirs(os.path.dirname(RUTA_SALIDA), exist_ok=True)
 
-        print(f"  {canal:<13} {cfg['descripcion']:<30} "
-              f"{vol/1e9:>13.6f}  {err_str:>10}")
+with open(RUTA_SALIDA, "w", newline="", encoding="utf-8") as f:
+    csv.writer(f).writerows(filas_csv)
 
-        filas_csv.append([
-            canal, nombre, cfg["descripcion"], cfg["T"],
-            n_ok, f"{sum(areas):.2f}", f"{vol/1e9:.6f}",
-            f"{err:.2f}" if not (err != err) else ""
-        ])
-
-    print()
-
-# ── Guardar CSV ────────────────────────────────────────────────
-try:
-    os.makedirs(os.path.dirname(RUTA_SALIDA), exist_ok=True)
-    with open(RUTA_SALIDA, "w", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerows(filas_csv)
-    print(f"✓ Resultados guardados en: {RUTA_SALIDA}")
-except Exception as e:
-    print(f"[AVISO] No se pudo guardar CSV: {e}")
-
-print("=" * 65)
+print(f"\n✓ CSV guardado en: {RUTA_SALIDA}")
