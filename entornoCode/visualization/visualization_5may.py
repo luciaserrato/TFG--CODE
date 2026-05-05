@@ -36,11 +36,6 @@ z_um_por_plano  = float(datos["z_um_por_plano"])
 xy_um_por_pixel = float(datos["xy_um_por_pixel"])
 scale_xyz       = (z_um_por_plano, xy_um_por_pixel, xy_um_por_pixel)
 
-gfap_umbral_percentil = int(datos.get("gfap_umbral_percentil", 85))
-gfap_apertura_px      = int(datos.get("gfap_apertura_px", 3))
-gfap_cierre_px        = int(datos.get("gfap_cierre_px", 15))
-gfap_erosion_px       = int(datos.get("gfap_erosion_px", 2))
-
 print(f"Escala Z: {z_um_por_plano} µm/plano  |  XY: {xy_um_por_pixel:.4f} µm/píxel")
 print(f"Canales: {canales}")
 
@@ -288,49 +283,7 @@ viewer.camera.angles = (0, 30, 135)
 viewer.camera.zoom   = 1.2
 
 # ============================================================
-# 4. WIDGET: REFINAR MASCARA GFAP EN TIEMPO REAL
-# ============================================================
-@magicgui(
-    call_button="Aplicar mascara",
-    umbral_percentil    ={"widget_type": "SpinBox", "min": 50, "max": 99, "value": gfap_umbral_percentil, "label": "Umbral (percentil)"},
-    erosion_px          ={"widget_type": "SpinBox", "min": 0,  "max": 10, "value": gfap_erosion_px,       "label": "Erosion (px)"},
-    apertura_px         ={"widget_type": "SpinBox", "min": 0,  "max": 20, "value": gfap_apertura_px,      "label": "Apertura (px)"},
-    cierre_px           ={"widget_type": "SpinBox", "min": 0,  "max": 30, "value": gfap_cierre_px,        "label": "Cierre (px)"},
-    recalcular_contacto ={"label": "Recalcular contacto"},
-)
-def widget_gfap(umbral_percentil=gfap_umbral_percentil,
-                erosion_px=gfap_erosion_px,
-                apertura_px=gfap_apertura_px,
-                cierre_px=gfap_cierre_px,
-                recalcular_contacto=True):
-    if vol_gfap is None:
-        print("[ERROR] Volumen GFAP no disponible.")
-        return
-
-    vol_mask = segmentar_gfap_live(
-        vol_gfap, umbral_percentil, erosion_px, apertura_px, cierre_px)
-
-    if "GFAP-tumor" in capas:
-        capas["GFAP-tumor"].data            = vol_mask
-        capas["GFAP-tumor"].contrast_limits = calcular_contraste(vol_mask)
-
-    if recalcular_contacto and "Contacto" in capas and vol_iba1 is not None:
-        vol_c = crear_capa_contacto(vol_iba1, vol_mask)
-        capas["Contacto"].data            = vol_c
-        capas["Contacto"].contrast_limits = calcular_contraste(vol_c)
-
-    n = int((vol_mask > 0).sum())
-    t = int((vol_gfap  > 0).sum())
-    print(f"Mascara: {n:,}/{t:,} voxeles ({100*n/max(t,1):.1f}%)")
-    print(f"  GFAP_UMBRAL_PERCENTIL = {umbral_percentil}")
-    print(f"  GFAP_EROSION_PX       = {erosion_px}")
-    print(f"  GFAP_APERTURA_PX      = {apertura_px}")
-    print(f"  GFAP_CIERRE_PX        = {cierre_px}")
-
-viewer.window.add_dock_widget(widget_gfap, area="right", name="Mascara GFAP")
-
-# ============================================================
-# 5. WIDGET: CONTRASTE Y OPACIDAD GENERAL
+# 4. WIDGET: CONTRASTE Y OPACIDAD GENERAL
 # ============================================================
 nombres_capas = list(capas.keys())
 

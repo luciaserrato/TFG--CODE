@@ -25,10 +25,10 @@ CANALES = ["C00-DAPI", "C01-IBA-1", "C02-GFAP"]
 COLORES = ["blue",     "green",     "red"]
 
 # ── Alineamiento ECC ──────────────────────────────────────────
-ECC_ITERATIONS    = 400      # máx iteraciones por par de cortes
+ECC_ITERATIONS    = 600      # máx iteraciones por par de cortes
 ECC_EPSILON       = 1e-6     # tolerancia de convergencia
 ECC_WARP_MODE     = cv2.MOTION_TRANSLATION  # solo traslación (más estable)
-ECC_GAUSS_SIGMA   = 5        # suavizado previo al ECC para robustez
+ECC_GAUSS_SIGMA   = 8        # suavizado previo al ECC para robustez
 
 # ── Segmentación GFAP ─────────────────────────────────────────
 GFAP_UMBRAL_PERCENTIL = 70   # percentil sobre señal real (mitad superior)
