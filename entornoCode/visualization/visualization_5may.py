@@ -228,7 +228,7 @@ if vol_dapi is not None:
     capas["DAPI"] = viewer.add_image(
         vol_dapi, name="DAPI", scale=scale_xyz,
         blending="additive", colormap="blue",
-        contrast_limits=cl, opacity=0.35, gamma=1.0,
+        contrast_limits=cl, opacity=0.5, gamma=1.0,
     )
 
 if vol_iba1 is not None:
@@ -237,14 +237,14 @@ if vol_iba1 is not None:
     capas["IBA-1"] = viewer.add_image(
         vol_iba1, name="IBA-1", scale=scale_xyz,
         blending="additive", colormap="green",
-        contrast_limits=cl, opacity=0.7, gamma=1.0,
+        contrast_limits=cl, opacity=0.8, gamma=1.0,
     )
 
 if vol_tumor is not None:
     cl = calcular_contraste(vol_tumor, p_low=60, p_high=99)
-    print(f"  GFAP-tumor shape={vol_tumor.shape}  cl={[round(v,4) for v in cl]}")
-    capas["GFAP-tumor"] = viewer.add_image(
-        vol_tumor, name="GFAP-tumor", scale=scale_xyz,
+    print(f"  GFAP shape={vol_tumor.shape}  cl={[round(v,4) for v in cl]}")
+    capas["GFAP"] = viewer.add_image(
+        vol_tumor, name="GFAP", scale=scale_xyz,
         blending="additive", colormap="red",
         contrast_limits=cl, opacity=0.9, gamma=0.8,
     )
@@ -269,7 +269,7 @@ if vol_iba1 is not None and vol_dapi is not None:
         vol_iba1, vol_dapi,
         umbral_percentil_dapi=DAPI_UMBRAL_TUMORAL,
         sigma=2.0,
-        umbral_percentil_contacto=70
+        umbral_percentil_contacto=80
     )
     cl_dapi = calcular_contraste(vol_contacto_dapi)
     print(f"  ContactoDAPI shape={vol_contacto_dapi.shape}  cl={[round(v,4) for v in cl_dapi]}")
