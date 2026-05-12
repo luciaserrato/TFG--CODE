@@ -1,3 +1,0 @@
-Canal referencia: C00-DAPI
-Volumen total: 423269598.28464 micras cubicas
-Volumen total: 0.42326959828464 mm3

@@ -114,12 +114,6 @@ def crear_capa_contacto(vol_iba1, vol_gfap, sigma=2.0, umbral_percentil=70,
 
 def crear_dapi_tumoral(vol_dapi, umbral_percentil_dapi=80):
     """
-    Restringe el DAPI a la zona tumoral seleccionando solo los píxeles
-    más intensos (alta densidad nuclear = núcleo tumoral).
-
-    El tumor tiene una densidad celular mucho mayor que el tejido sano,
-    por lo que sus núcleos generan picos de intensidad DAPI más brillantes.
-
     umbral_percentil_dapi: percentil sobre píxeles positivos para el corte
                            (80 → solo el 20% más brillante del DAPI)
     """
@@ -142,9 +136,6 @@ def crear_contacto_iba1_dapi(vol_iba1, vol_dapi, umbral_percentil_dapi=80,
                               sigma=2.0, umbral_percentil_contacto=70):
     """
     Co-localización IBA-1 × DAPI tumoral (cyan).
-
-    Resalta donde la microglía (IBA-1) contacta con núcleos tumorales
-    densamente empaquetados (DAPI brillante = zona de alta proliferación).
 
     Pasos:
       1. Restringir DAPI a píxeles brillantes (zona tumoral)
@@ -254,7 +245,7 @@ if vol_iba1 is not None and vol_tumor is not None:
     vol_contacto = crear_capa_contacto(vol_iba1, vol_tumor)
     cl = calcular_contraste(vol_contacto)
     print(f"  Contacto   shape={vol_contacto.shape}  cl={[round(v,4) for v in cl]}")
-    capas["Contacto"] = viewer.add_image(
+    capas["Contacto IBA1xGFAP"] = viewer.add_image(
         vol_contacto, name="Contacto IBA1xGFAP", scale=scale_xyz,
         blending="additive", colormap="yellow",
         contrast_limits=cl, opacity=1.0, gamma=0.7,
@@ -273,7 +264,7 @@ if vol_iba1 is not None and vol_dapi is not None:
     )
     cl_dapi = calcular_contraste(vol_contacto_dapi)
     print(f"  ContactoDAPI shape={vol_contacto_dapi.shape}  cl={[round(v,4) for v in cl_dapi]}")
-    capas["ContactoDAPI"] = viewer.add_image(
+    capas["Contacto IBA1XDAPI"] = viewer.add_image(
         vol_contacto_dapi, name="Contacto IBA1xDAPI", scale=scale_xyz,
         blending="additive", colormap="cyan",
         contrast_limits=cl_dapi, opacity=1.0, gamma=0.7,
