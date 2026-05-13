@@ -1,12 +1,42 @@
-# Análisis Digital de Imagen 3D en Neuroblastoma de Ratón
-**TFG - Ingeniería Biomédica**
+# Pipeline de Procesamiento 3D: Reconstrucción y Cuantificación
 
-Instalación de librerías
-python 3.10.11
+Este proyecto implementa un flujo de trabajo automatizado para el análisis de glioblastoma. 
+A continuación se detalla el funcionamiento de los módulos y los requisitos de rutas para su ejecución.
 
-Bash
-# Actualizar el gestor de paquetes primero
+## 🛠️ Instalación
+
+El sistema requiere **Python 3.10.11**. Instale las dependencias ejecutando:
+
+```bash
+# Actualizar pip
 python -m pip install --upgrade pip
 
-# Instalación de las tecnologías declaradas en tu TFG
+# Instalar librerías del proyecto
 python -m pip install opencv-python numpy scipy scikit-image napari[all] magicgui
+
+Flujo de Trabajo y Gestión de Rutas
+Para asegurar la correcta ejecución del análisis, es fundamental respetar la jerarquía de archivos y las rutas de entrada en cada módulo:
+
+1. Fusión de Canales (01_merge.py)
+Este script automatiza la creación de imágenes multicanal a partir de capturas monocromáticas.
+
+Configuración de Ruta: El usuario debe introducir la ruta de la carpeta raíz del experimento.
+
+Requisito Estructural: Dicha carpeta raíz debe contener obligatoriamente 3 subcarpetas 
+(una para el canal DAPI, otra para IBA-1 y otra para GFAP). 
+El script buscará archivos con nombres coincidentes en las tres ubicaciones para fusionarlos.
+
+2. Registro y Normalización (02_normalization.py)
+Este módulo realiza el alineamiento espacial entre cortes y la interpolación axial para generar un volumen continuo.
+
+Configuración de Ruta: Se debe introducir la ruta de la carpeta generada por el proceso de Merge anterior.
+
+Procesamiento: El script lee las imágenes fusionadas, corrige las traslaciones y genera un volumen reconstruido.
+
+3. Visualización y Cuantificación (03_visualization.py)
+Interfaz basada en Napari para la exploración tridimensional y cálculo de volúmenes.
+
+Configuración de Ruta: Se debe cargar el fichero único (.npz) generado por el módulo de normalización.
+
+Ventaja: El uso de este fichero comprimido permite una carga fluida de los datos y acceso instantáneo ç
+a los metadatos de escala para el cálculo de Cavalieri.
